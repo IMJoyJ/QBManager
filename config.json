@@ -1,0 +1,15 @@
+{
+  "server": {
+    "base_url": "http://localhost:8080",
+    "username": "admin",
+    "password": "admin_password"
+  },
+  "scripts": [
+    "scripts/agsvpt_move.lua"
+  ],
+  "settings": {
+    "script_interval_seconds": 5,
+    "loop_interval_seconds": 300,
+    "max_retry_attempts": 3
+  }
+}

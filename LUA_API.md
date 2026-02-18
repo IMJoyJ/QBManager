@@ -40,9 +40,11 @@ Scripts must return an integer at the end of execution to signal status to the h
 
 ### Torrent Management
 
-#### `qb:GetTorrents()`
-Returns a list (table) of all torrents.
-- **Returns**: `table[]` (List of torrent objects) or `nil` on failure.
+#### `qb:GetTorrents(hashes)`
+Get all torrents or filtered by hash.
+- **Parameters**:
+    - `hashes` (string, optional): Pipe-separated list of hashes (e.g. "hash1|hash2"). If omitted or nil, returns all torrents.
+- **Returns**: `table[]` (list of torrent objects) or `nil`.
 - **Torrent Object Fields**:
     - `hash` (string): Torrent hash
     - `name` (string): Torrent name

@@ -240,9 +240,28 @@ public class QBClient
     /// </summary>
     public object? GetTorrents()
     {
+        return GetTorrentsInternal(null);
+    }
+
+    /// <summary>
+    /// Get specific torrents by hash (pipe-separated). Returns a Lua table array.
+    /// </summary>
+    public object? GetTorrents(string hashes)
+    {
+        return GetTorrentsInternal(hashes);
+    }
+
+    private object? GetTorrentsInternal(string? hashes)
+    {
         try
         {
-            var response = GetAsync($"{_server.BaseUrl}/api/v2/torrents/info").Result;
+            var url = $"{_server.BaseUrl}/api/v2/torrents/info";
+            if (!string.IsNullOrEmpty(hashes))
+            {
+                url += $"?hashes={hashes}";
+            }
+
+            var response = GetAsync(url).Result;
             response.EnsureSuccessStatusCode();
             var json = response.Content.ReadAsStringAsync().Result;
             var doc = JsonDocument.Parse(json);

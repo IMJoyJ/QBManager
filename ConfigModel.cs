@@ -12,6 +12,9 @@ public class AppConfig
 
     [JsonPropertyName("settings")]
     public AppSettings Settings { get; set; } = new();
+
+    [JsonPropertyName("database_path")]
+    public string? DatabasePath { get; set; }
 }
 
 public class ServerConfig

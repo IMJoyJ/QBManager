@@ -68,6 +68,16 @@ class Program
         // ── Create QBClient ──
         var qb = new QBClient(httpClient, config.Server, cookies);
 
+        // ── Configure SQLite database path (if set) ──
+        if (!string.IsNullOrEmpty(config.DatabasePath))
+        {
+            var dbPath = Path.IsPathRooted(config.DatabasePath)
+                ? config.DatabasePath
+                : Path.Combine(Path.GetDirectoryName(configPath) ?? Directory.GetCurrentDirectory(), config.DatabasePath);
+            qb.SetDatabasePath(dbPath);
+            Console.WriteLine($"[Config] Database: {dbPath}");
+        }
+
         // ── Login ──
         Console.WriteLine("[Main] Logging in to qBittorrent WebUI...");
         if (!await qb.LoginAsync())

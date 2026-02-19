@@ -11,5 +11,6 @@
     "script_interval_seconds": 5,
     "loop_interval_seconds": 300,
     "max_retry_attempts": 3
-  }
+  },
+  "database_path": "data.db"
 }

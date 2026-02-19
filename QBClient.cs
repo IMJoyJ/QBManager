@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using System.Web;
+using Microsoft.Data.Sqlite;
 using NLua;
 
 namespace QBManager;
@@ -18,6 +19,7 @@ public class QBClient
     private readonly CookieContainer _cookies;
 
     private NLua.Lua? _lua;
+    private string? _dbPath;
 
     public QBClient(HttpClient httpClient, ServerConfig server, CookieContainer cookies)
     {
@@ -342,6 +344,39 @@ public class QBClient
     }
 
     /// <summary>
+    /// Add a torrent from a local .torrent file.
+    /// </summary>
+    public object? AddTorrentFile(string category, string savePath, bool skipHashCheck, string torrentFilePath)
+    {
+        try
+        {
+            if (!File.Exists(torrentFilePath))
+            {
+                SetLastError($"AddTorrentFile: File not found: {torrentFilePath}");
+                return null;
+            }
+
+            var content = new MultipartFormDataContent();
+            var fileBytes = File.ReadAllBytes(torrentFilePath);
+            var fileContent = new ByteArrayContent(fileBytes);
+            fileContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/x-bittorrent");
+            content.Add(fileContent, "torrents", Path.GetFileName(torrentFilePath));
+            content.Add(new StringContent(savePath), "savepath");
+            content.Add(new StringContent(category), "category");
+            content.Add(new StringContent(skipHashCheck ? "true" : "false"), "skip_checking");
+
+            var response = PostMultipartAsync($"{_server.BaseUrl}/api/v2/torrents/add", content).Result;
+            response.EnsureSuccessStatusCode();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"AddTorrentFile failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Set the download location for a torrent.
     /// </summary>
     public object? SetLocation(string hash, string newPath)
@@ -536,11 +571,13 @@ public class QBClient
     /// <summary>
     /// Copy torrent content files to destination using System.IO.
     /// Tracks copied files for rollback on failure.
+    /// overwrite: true = overwrite existing, false = skip existing, null = error if exists
     /// </summary>
-    public object? CopyTorrentFiles(string hash, string destinationPath, bool overwrite = false)
+    public object? CopyTorrentFiles(string hash, string destinationPath, bool? overwrite = null)
     {
         var copiedFiles = new List<string>();
         var createdDirs = new List<string>();
+        int skippedCount = 0;
 
         try
         {
@@ -564,6 +601,21 @@ public class QBClient
                 return null;
             }
 
+            // Safety: refuse to copy if content_path == save_path
+            // This happens when a torrent has no single root folder (e.g. after a crashed rename),
+            // and would cause us to recursively copy the ENTIRE download directory.
+            var savePath = torrents[0].GetProperty("save_path").GetString();
+            if (!string.IsNullOrEmpty(savePath))
+            {
+                var normalizedContent = Path.GetFullPath(contentPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var normalizedSave = Path.GetFullPath(savePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (string.Equals(normalizedContent, normalizedSave, StringComparison.OrdinalIgnoreCase))
+                {
+                    SetLastError($"CopyTorrentFiles: content_path equals save_path ({contentPath}), refusing to copy entire directory. Torrent may have inconsistent folder structure.");
+                    return null;
+                }
+            }
+
             // Step 2: Determine if it's a file or directory and copy
             if (File.Exists(contentPath))
             {
@@ -576,24 +628,46 @@ public class QBClient
                     createdDirs.Add(destDir);
                 }
 
-                if (!overwrite && File.Exists(destFile))
+                if (File.Exists(destFile))
                 {
-                    SetLastError($"CopyTorrentFiles: Destination file already exists: {destFile}");
-                    return null;
+                    if (overwrite == null)
+                    {
+                        // null = error
+                        SetLastError($"CopyTorrentFiles: Destination file already exists: {destFile}");
+                        return null;
+                    }
+                    else if (overwrite == false)
+                    {
+                        // false = skip
+                        skippedCount++;
+                    }
+                    else
+                    {
+                        // true = overwrite
+                        File.Copy(contentPath, destFile, true);
+                        copiedFiles.Add(destFile);
+                    }
                 }
-
-                File.Copy(contentPath, destFile, overwrite);
-                copiedFiles.Add(destFile);
+                else
+                {
+                    File.Copy(contentPath, destFile, false);
+                    copiedFiles.Add(destFile);
+                }
             }
             else if (Directory.Exists(contentPath))
             {
                 // Multi-file torrent (directory)
-                CopyDirectoryRecursive(contentPath, destinationPath, overwrite, copiedFiles, createdDirs);
+                CopyDirectoryRecursive(contentPath, destinationPath, overwrite, copiedFiles, createdDirs, ref skippedCount);
             }
             else
             {
                 SetLastError($"CopyTorrentFiles: Source path does not exist: {contentPath}");
                 return null;
+            }
+
+            if (skippedCount > 0)
+            {
+                Console.Error.WriteLine($"[QBClient] CopyTorrentFiles: skipped {skippedCount} existing files");
             }
 
             return true;
@@ -641,8 +715,8 @@ public class QBClient
     }
 
     private static void CopyDirectoryRecursive(
-        string sourceDir, string destDir, bool overwrite,
-        List<string> copiedFiles, List<string> createdDirs)
+        string sourceDir, string destDir, bool? overwrite,
+        List<string> copiedFiles, List<string> createdDirs, ref int skippedCount)
     {
         // Ensure the folder name itself is preserved in destination
         var dirName = Path.GetFileName(sourceDir);
@@ -658,18 +732,29 @@ public class QBClient
         foreach (var file in Directory.GetFiles(sourceDir))
         {
             var destFile = Path.Combine(targetDir, Path.GetFileName(file));
-            if (!overwrite && File.Exists(destFile))
+            if (File.Exists(destFile))
             {
-                throw new IOException($"Destination file already exists: {destFile}");
+                if (overwrite == null)
+                {
+                    // null = error
+                    throw new IOException($"Destination file already exists: {destFile}");
+                }
+                else if (overwrite == false)
+                {
+                    // false = skip
+                    skippedCount++;
+                    continue;
+                }
+                // true = overwrite, fall through to File.Copy
             }
-            File.Copy(file, destFile, overwrite);
+            File.Copy(file, destFile, overwrite == true);
             copiedFiles.Add(destFile);
         }
 
         // Recurse into subdirectories
         foreach (var subDir in Directory.GetDirectories(sourceDir))
         {
-            CopyDirectoryRecursive(subDir, targetDir, overwrite, copiedFiles, createdDirs);
+            CopyDirectoryRecursive(subDir, targetDir, overwrite, copiedFiles, createdDirs, ref skippedCount);
         }
     }
 
@@ -780,6 +865,383 @@ public class QBClient
         catch (Exception ex)
         {
             SetLastError($"IsDirectory failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Prompt the user with a yes/no question via console.
+    /// Returns true for yes, false for no.
+    /// </summary>
+    public bool AskYesNo(string prompt)
+    {
+        Console.Error.Write(prompt + " [y/N]: ");
+        Console.Error.Flush();
+        var input = Console.ReadLine();
+        return input != null &&
+               (input.Trim().Equals("y", StringComparison.OrdinalIgnoreCase) ||
+                input.Trim().Equals("yes", StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Move (rename) a local file. Works across directories on the same drive.
+    /// </summary>
+    public object? MoveLocalFile(string sourcePath, string destinationPath)
+    {
+        try
+        {
+            var destDir = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrEmpty(destDir) && !Directory.Exists(destDir))
+            {
+                Directory.CreateDirectory(destDir);
+            }
+            File.Move(sourcePath, destinationPath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"MoveLocalFile failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Move (rename) a local directory. Fails if destination already exists.
+    /// </summary>
+    public object? MoveLocalDirectory(string sourcePath, string destinationPath)
+    {
+        try
+        {
+            Directory.Move(sourcePath, destinationPath);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"MoveLocalDirectory failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Merge contents of sourceDir into destDir (move all files/subdirs).
+    /// Creates destDir if it doesn't exist. Removes sourceDir after merge.
+    /// Returns the number of files moved, or nil on error.
+    /// </summary>
+    public object? MergeLocalDirectory(string sourceDir, string destDir)
+    {
+        try
+        {
+            if (!Directory.Exists(sourceDir))
+            {
+                SetLastError($"MergeLocalDirectory: Source does not exist: {sourceDir}");
+                return null;
+            }
+
+            if (!Directory.Exists(destDir))
+            {
+                Directory.CreateDirectory(destDir);
+            }
+
+            int movedCount = MergeDirectoryRecursive(sourceDir, destDir);
+
+            // Try to remove source directory (should be empty after merge)
+            try
+            {
+                if (Directory.Exists(sourceDir))
+                {
+                    Directory.Delete(sourceDir, false);
+                }
+            }
+            catch
+            {
+                Console.Error.WriteLine($"[QBClient] MergeLocalDirectory: Could not remove source dir (not empty?): {sourceDir}");
+            }
+
+            return (long)movedCount;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"MergeLocalDirectory failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    private static int MergeDirectoryRecursive(string sourceDir, string destDir)
+    {
+        int count = 0;
+
+        // Move files
+        foreach (var file in Directory.GetFiles(sourceDir))
+        {
+            var destFile = Path.Combine(destDir, Path.GetFileName(file));
+            if (File.Exists(destFile))
+            {
+                // Skip if destination already exists (same file, different root)
+                Console.Error.WriteLine($"[QBClient] MergeLocalDirectory: Skipping existing file: {destFile}");
+                continue;
+            }
+            File.Move(file, destFile);
+            count++;
+        }
+
+        // Recurse into subdirectories
+        foreach (var subDir in Directory.GetDirectories(sourceDir))
+        {
+            var destSubDir = Path.Combine(destDir, Path.GetFileName(subDir));
+            if (!Directory.Exists(destSubDir))
+            {
+                // Simple move if destination subdir doesn't exist
+                Directory.Move(subDir, destSubDir);
+                count += Directory.GetFiles(destSubDir, "*", SearchOption.AllDirectories).Length;
+            }
+            else
+            {
+                // Merge recursively if both exist
+                count += MergeDirectoryRecursive(subDir, destSubDir);
+                try { Directory.Delete(subDir, false); } catch { }
+            }
+        }
+
+        return count;
+    }
+
+
+    // ─────────────────────────────────────────────
+    //  SQLite Database
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Set the SQLite database file path. Called by Program.cs at startup.
+    /// </summary>
+    public void SetDatabasePath(string path)
+    {
+        _dbPath = path;
+    }
+
+    /// <summary>
+    /// Helper: create and bind parameters @p1, @p2, ... from args.
+    /// </summary>
+    private void BindDbParameters(SqliteCommand cmd, object[] args)
+    {
+        for (int i = 0; i < args.Length; i++)
+        {
+            var val = args[i];
+            cmd.Parameters.AddWithValue($"@p{i + 1}", val ?? DBNull.Value);
+        }
+    }
+
+    /// <summary>
+    /// Execute a non-query SQL statement (INSERT/UPDATE/DELETE/CREATE).
+    /// Returns the number of affected rows.
+    /// </summary>
+    public object? DbExecute(string sql, params object[] args)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_dbPath))
+            {
+                SetLastError("DbExecute: database_path not configured.");
+                return null;
+            }
+
+            using var conn = new SqliteConnection($"Data Source={_dbPath}");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            BindDbParameters(cmd, args);
+            var affected = cmd.ExecuteNonQuery();
+            return (long)affected;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"DbExecute failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Execute a SELECT query. Returns a Lua table array of row-dictionaries.
+    /// Each row is a table { column_name = value, ... }.
+    /// </summary>
+    public object? DbQuery(string sql, params object[] args)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_dbPath))
+            {
+                SetLastError("DbQuery: database_path not configured.");
+                return null;
+            }
+            if (_lua == null)
+            {
+                SetLastError("DbQuery: Lua state not bound.");
+                return null;
+            }
+
+            using var conn = new SqliteConnection($"Data Source={_dbPath}");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            BindDbParameters(cmd, args);
+            using var reader = cmd.ExecuteReader();
+
+            // Create result table
+            var resultTable = (LuaTable)_lua.DoString("return {}")[0];
+            int rowIndex = 0;
+
+            while (reader.Read())
+            {
+                rowIndex++;
+                var rowTable = (LuaTable)_lua.DoString("return {}")[0];
+
+                for (int col = 0; col < reader.FieldCount; col++)
+                {
+                    var colName = reader.GetName(col);
+                    if (reader.IsDBNull(col))
+                    {
+                        // nil — just skip, Lua tables have nil for missing keys
+                        continue;
+                    }
+
+                    var raw = reader.GetValue(col);
+                    // SQLite types: INTEGER -> long, REAL -> double, TEXT -> string, BLOB -> byte[]
+                    object value = raw switch
+                    {
+                        long l => l,
+                        double d => d,
+                        string s => s,
+                        byte[] b => System.Text.Encoding.UTF8.GetString(b),
+                        _ => raw.ToString()!
+                    };
+
+                    // Use same pattern as JsonObjectToLuaTable
+                    rowTable[colName] = value;
+                }
+
+                // Insert row into result array (1-based index)
+                _lua["__temp_val"] = rowTable;
+                _lua["__temp_tbl"] = resultTable;
+                _lua.DoString($"__temp_tbl[{rowIndex}] = __temp_val");
+                _lua["__temp_val"] = null;
+                _lua["__temp_tbl"] = null;
+            }
+
+            return resultTable;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"DbQuery failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Execute a scalar query. Returns the first column of the first row.
+    /// </summary>
+    public object? DbScalar(string sql, params object[] args)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(_dbPath))
+            {
+                SetLastError("DbScalar: database_path not configured.");
+                return null;
+            }
+
+            using var conn = new SqliteConnection($"Data Source={_dbPath}");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            BindDbParameters(cmd, args);
+            var result = cmd.ExecuteScalar();
+
+            if (result == null || result == DBNull.Value)
+                return null;
+
+            return result switch
+            {
+                long l => l,
+                double d => d,
+                string s => s,
+                byte[] b => System.Text.Encoding.UTF8.GetString(b),
+                _ => result.ToString()!
+            };
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"DbScalar failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  File-Level Operations
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Get the list of files belonging to a torrent.
+    /// Returns a Lua table array of { name, size, progress, priority, ... }.
+    /// The "name" field is the path relative to save_path.
+    /// </summary>
+    public object? GetTorrentFiles(string hash)
+    {
+        try
+        {
+            var response = GetAsync($"{_server.BaseUrl}/api/v2/torrents/files?hash={hash}").Result;
+            response.EnsureSuccessStatusCode();
+            var json = response.Content.ReadAsStringAsync().Result;
+            var doc = JsonDocument.Parse(json);
+            return JsonArrayToLuaTable(doc.RootElement);
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"GetTorrentFiles failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Delete a single local file. Returns true on success, nil on failure.
+    /// </summary>
+    public object? DeleteLocalFile(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                // File doesn't exist — treat as success (already gone)
+                return true;
+            }
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"DeleteLocalFile failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Delete a local directory ONLY if it is empty. Returns true if deleted,
+    /// false if not empty, nil on error.
+    /// </summary>
+    public object? DeleteLocalDir(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path))
+                return true; // already gone
+
+            if (Directory.EnumerateFileSystemEntries(path).Any())
+                return false; // not empty
+
+            Directory.Delete(path, false);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"DeleteLocalDir failed: {ex.GetBaseException().Message}");
             return null;
         }
     }

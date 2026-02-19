@@ -15,6 +15,7 @@ local M = {}
         GetCandidates    = function() -> {},   -- 返回待处理种子列表
         PreBackup        = function(t) -> {},  -- (可选) 预处理，如重命名。返回修改后的种子对象(或仅执行副作用)
         GetBackupPath    = function(t) -> "",  -- 返回备份目标路径 (文件夹)
+        Overwrite        = nil,                -- (可选) 备份覆盖策略: true=覆盖, false=跳过, nil=报错(默认)
         TargetDrive      = "E:\\",             -- 目标盘路径（用于检查空间）
         TargetMinSpace   = 200 * 1024^3,       -- 目标盘最小保留空间 (bytes)
         GetDeletable     = function(all) -> {},-- 返回可删除种子列表(按删除优先级排序)
@@ -23,7 +24,7 @@ local M = {}
 ]]
 function M.Run(config)
     print("========================================")
-    print("  general_move.lua 开始执行")
+    print("  seeding_move.lua 开始执行")
     print("  Source: " .. (config.SourceDrive or "N/A"))
     print("  Target: " .. (config.TargetDrive or "N/A"))
     print("========================================")
@@ -71,9 +72,12 @@ function M.Run(config)
         -- 4. 预处理 (如重命名)
         if config.PreBackup then
             local newT = config.PreBackup(t)
-            if newT then t = newT end
-            -- 刷新一下基本信息（如果 PreBackup 修改了名字或路径，可能需要重新获取，但 API 可能还没更新）
-            -- 这里假设 PreBackup 内部处理了 Rename API 调用。
+            if newT == nil then
+                -- PreBackup 失败（如重命名冲突），停止并等待人工处理
+                print("[ERROR] PreBackup 失败，停止处理。请检查种子状态后手动处理。")
+                return 2
+            end
+            t = newT
         end
         
         -- 5. 备份
@@ -81,7 +85,7 @@ function M.Run(config)
             local destDir = config.GetBackupPath(t)
             if destDir then
                 print(string.format("[INFO] 备份到: %s", destDir))
-                local success = qb:CopyTorrentFiles(hash, destDir)
+                local success = qb:CopyTorrentFiles(hash, destDir, config.Overwrite)
                 if not success then
                     print("[ERROR] 备份失败: " .. tostring(_G.LastError))
                     return 0 -- 重试
@@ -98,15 +102,13 @@ function M.Run(config)
                     return 0
                 end
                 
-                -- 判断标准：剩余空间 - 种子大小 >= 保留空间
-                -- 即：Free - Size >= TargetMinSpace
-                -- 如果不满足 (Free - Size < TargetMinSpace)，则清理
-                if (free - size) >= config.TargetMinSpace then
+                local needed = config.TargetMinSpace + size
+                if free >= needed then
                     break -- 空间足够
                 end
                 
                 print(string.format("[INFO] 目标盘空间不足 (Free: %.2f GB, Need: %.2f GB), 开始清理...", 
-                    free / 1024^3, (config.TargetMinSpace + size) / 1024^3))
+                    free / 1024^3, needed / 1024^3))
                 
                 -- 获取全部种子用于筛选可删除项
                 local all = qb:GetTorrents()

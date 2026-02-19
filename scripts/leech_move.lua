@@ -1,59 +1,54 @@
 --[[
     leech_move.lua
-    功能：Leech 种子处理 (Finished -> Backup -> Delete)
-    逻辑：
-    1. 检查 D 盘空间 (保留 50G, 不足则等待)
-    2. 筛选 Leech 分类 + uploading/stalledUP
-    3. 备份至 I:\115\PT\Leech\{Category}\{Name}
-    4. 备份成功后直接删除源任务和数据
+    功能：Leech 种子处理 (Finished -> Backup -> Delete) 用作通用模块
+    
+    提供 Run(config) 函数，执行通用的“源盘检查 -> 筛选 -> (预处理) -> 备份 -> 删除”流程。
 ]]
 
 local M = {}
 
-function M.Run()
+--[[
+    config 结构:
+    {
+        SourceDrive      = "D:\\",             -- 源盘路径（用于检查空间）
+        SourceMinSpace   = 50 * 1024^3,        -- 源盘最小保留空间 (bytes)
+        GetCandidates    = function() -> {},   -- 返回待处理种子列表
+        PreBackup        = function(t) -> {},  -- (可选) 预处理，如重命名。返回修改后的种子对象(或仅执行副作用)
+        GetBackupPath    = function(t) -> "",  -- 返回备份目标路径 (文件夹)
+        Overwrite        = nil,                -- (可选) 备份覆盖策略: true=覆盖, false=跳过, nil=报错(默认)
+    }
+]]
+function M.Run(config)
     print("========================================")
     print("  leech_move.lua 开始执行")
-    print("  Source: D:\\")
-    print("  Target: I:\\115\\PT\\Leech\\...")
+    print("  Source: " .. (config.SourceDrive or "N/A"))
     print("========================================")
 
-    local SourceDrive = "D:\\"
-    local SourceMinSpace = 50 * 1024^3
-    
     while true do
         -- 1. 检查源盘空间
-        while true do
-            local free = qb:GetLocalFreeSpace(SourceDrive)
-            if free == nil then
-                print("[ERROR] 无法获取源盘空间: " .. tostring(_G.LastError))
-                return 0
+        if config.SourceDrive and config.SourceMinSpace then
+            while true do
+                local free = qb:GetLocalFreeSpace(config.SourceDrive)
+                if free == nil then
+                    print("[ERROR] 无法获取源盘空间: " .. tostring(_G.LastError))
+                    return 0
+                end
+                
+                if free >= config.SourceMinSpace then
+                    break
+                end
+                
+                print(string.format("[WAIT] 源盘空间不足 (%.2f GB < %.2f GB)，等待 5 秒...", 
+                    free / (1024^3), config.SourceMinSpace / (1024^3)))
+                qb:Sleep(5)
             end
-            
-            if free >= SourceMinSpace then
-                break
-            end
-            
-            print(string.format("[WAIT] 源盘空间不足 (%.2f GB < %.2f GB)，等待 5 秒...", 
-                free / (1024^3), SourceMinSpace / (1024^3)))
-            qb:Sleep(5)
         end
         
         -- 2. 获取候选列表
-        local all = qb:GetTorrents()
-        if all == nil then
+        local candidates = config.GetCandidates()
+        if candidates == nil then
             print("[ERROR] 获取种子列表失败")
             return 0
-        end
-        
-        local candidates = {}
-        for i = 1, #all do
-            local t = all[i]
-            local cat = t["category"] or ""
-            local state = t["state"] or ""
-            
-            if (cat == "Leech") and (state == "uploading" or state == "stalledUP") then
-                table.insert(candidates, t)
-            end
         end
         
         if #candidates == 0 then
@@ -68,18 +63,30 @@ function M.Run()
         
         print(string.format("[INFO] 处理种子: %s (%s)", name, hash))
         
-        -- 4. 备份
-        local cat = t["category"] or "Unknown"
-        local destDir = "I:\\115\\PT\\Leech\\" .. cat .. "\\" .. name
-        print(string.format("[INFO] 备份到: %s", destDir))
-        
-        local success = qb:CopyTorrentFiles(hash, destDir)
-        if not success then
-            print("[ERROR] 备份失败: " .. tostring(_G.LastError))
-            return 0 -- 重试
+        -- 4. 预处理 (如重命名)
+        if config.PreBackup then
+            local newT = config.PreBackup(t)
+            if newT == nil then
+                print("[ERROR] PreBackup 失败，停止处理。请检查种子状态后手动处理。")
+                return 2
+            end
+            t = newT
         end
         
-        -- 5. 删除源
+        -- 5. 备份
+        if config.GetBackupPath then
+            local destDir = config.GetBackupPath(t)
+            if destDir then
+                print(string.format("[INFO] 备份到: %s", destDir))
+                local success = qb:CopyTorrentFiles(hash, destDir, config.Overwrite)
+                if not success then
+                    print("[ERROR] 备份失败: " .. tostring(_G.LastError))
+                    return 0 -- 重试
+                end
+            end
+        end
+        
+        -- 6. 删除源
         print(string.format("[DELETE] 备份完成，删除源种子: %s", name))
         local ok = qb:DeleteTorrent(hash, true) -- true = delete data
         if not ok then
@@ -91,14 +98,4 @@ function M.Run()
     end
 end
 
--- 如果作为模块被 require，返回 table；如果直接执行，可能需要调用 Run
--- 目前框架似乎是通过 require 然后调用 Run，或者直接作为脚本执行？
--- 假设 Program.cs 是通过 DoString 执行文件内容，或者通过 require 获取模块。
--- 根据之前的 script_demo.lua 和 agsvpt_move.lua，似乎是返回一个模块或直接执行。
--- agsvpt_move.lua 实际上是 require 了 general_move 然后调用 Run 返回结果。
--- 这里我们为了保持一致性，也返回一个模块或者直接执行。
--- 鉴于 agsvpt_move 是直接调用 gm.Run(...) 并返回结果。
--- 我们这里把 Run 暴露出来，或者直接运行。
--- 为了简单，直接运行 Run 并返回结果。
-
-return M.Run()
+return M

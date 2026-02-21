@@ -120,6 +120,13 @@ Gets all trackers for a torrent.
 - **Parameters**: `hash` (string).
 - **Returns**: A table array where each element is a table with `{ url, status, tier, msg, ... }`, or `nil`.
 
+#### `qb:AddTrackers(hash, urls)`
+Adds trackers to a torrent.
+- **Parameters**: 
+    - `hash` (string).
+    - `urls` (string): Trackers to add, separated by `%0A` or `\n`.
+- **Returns**: `true` or `nil`.
+
 #### `qb:RemoveTrackers(hash, urls)`
 Removes trackers from a torrent.
 - **Parameters**: 

@@ -120,6 +120,13 @@ end
 - **参数**: `hash` (string)。
 - **返回值**: 一个表数组，其中每个元素都是一个带有 `{ url, status, tier, msg, ... }` 的表，或返回 `nil`。
 
+#### `qb:AddTrackers(hash, urls)`
+给种子添加 Tracker。
+- **参数**: 
+    - `hash` (string)。
+    - `urls` (string): 要添加的 Tracker，多个间使用 `%0A` 或 `\n` 分隔。
+- **返回值**: `true` 或 `nil`。
+
 #### `qb:RemoveTrackers(hash, urls)`
 移除种子下的某些 Tracker。
 - **参数**: 

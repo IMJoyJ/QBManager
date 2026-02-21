@@ -15,7 +15,7 @@
     }
 ]]
 
-local rbc = require("scripts.remove_by_condition")
+local rbc = require("scripts.modules.remove_by_condition")
 
 local M = {}
 

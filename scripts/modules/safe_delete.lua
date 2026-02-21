@@ -29,7 +29,7 @@ local function parentDir(path)
     return nil
 end
 
---- 统一路径分隔符为 \，并去除末尾分隔符
+--- 统一路径分隔符为 \，去除末尾分隔符，并统一转小写（Windows不区分大小写）
 local function normalizePath(p)
     if not p then return nil end
     p = p:gsub("/", SEP)
@@ -37,7 +37,8 @@ local function normalizePath(p)
     if #p > 3 and p:sub(-1) == SEP then
         p = p:sub(1, -2)
     end
-    return p
+    -- Windows 对大小写不敏感，统一转换为小写用于匹配
+    return p:lower()
 end
 
 --- 拼接 save_path 和文件相对路径

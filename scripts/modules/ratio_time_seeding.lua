@@ -1,10 +1,13 @@
 --[[
-    time_seeding.lua
-    功能：时间做种模块 (Module)
+    ratio_time_seeding.lua
+    功能：分享率+时间做种模块 (Module)
     
-    基于 remove_by_condition，当种子做种时长超过设定值时删除。
+    基于 remove_by_condition，当种子满足以下任一条件时删除：
+    - 分享率 >= MaxRatio
+    - 做种时长 >= MaxSeedingTime
     
     config = {
+        MaxRatio         = 1.0,                  -- (可选) 最大分享率，默认 1.0
         MaxSeedingTime   = 7 * 86400,            -- (可选) 最大做种秒数，默认 7 天
         GetCandidates    = function() -> {},     -- 返回所有相关种子
         EnableBackup     = false,                -- (可选) 默认 false
@@ -15,13 +18,15 @@
     }
 ]]
 
-local rbc = require("scripts.remove_by_condition")
+local rbc = require("scripts.modules.remove_by_condition")
 
 local M = {}
 
 function M.Run(config)
+    local maxRatio = config.MaxRatio or 1.0
     local maxTime = config.MaxSeedingTime or (7 * 86400)
-    print(string.format("[time_seeding] MaxSeedingTime: %d s (%.1f days)", maxTime, maxTime / 86400))
+    print(string.format("[ratio_time_seeding] MaxRatio: %.2f, MaxSeedingTime: %d s (%.1f days)",
+        maxRatio, maxTime, maxTime / 86400))
 
     return rbc.Run({
         TableName     = config.TableName,
@@ -32,8 +37,9 @@ function M.Run(config)
         PreBackup     = config.PreBackup,
         GetBackupPath = config.GetBackupPath,
         ShouldRemove  = function(t)
+            local ratio = t["ratio"] or 0
             local seedTime = t["seeding_time"] or 0
-            return seedTime >= maxTime
+            return (ratio >= maxRatio) or (seedTime >= maxTime)
         end,
     })
 end

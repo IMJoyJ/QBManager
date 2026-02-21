@@ -19,7 +19,7 @@
     }
 ]]
 
-local sd = require("scripts.safe_delete")
+local sd = require("scripts.modules.safe_delete")
 
 local M = {}
 

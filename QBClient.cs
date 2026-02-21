@@ -484,6 +484,29 @@ public class QBClient
     }
 
     /// <summary>
+    /// Remove trackers from a torrent.
+    /// </summary>
+    public object? RemoveTrackers(string hash, string urls)
+    {
+        try
+        {
+            var form = new Dictionary<string, string>
+            {
+                ["hash"] = hash,
+                ["urls"] = urls
+            };
+            var response = PostFormAsync($"{_server.BaseUrl}/api/v2/torrents/removeTrackers", form).Result;
+            response.EnsureSuccessStatusCode();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"RemoveTrackers failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Change the category of a torrent.
     /// </summary>
     public object? ChangeCategory(string hash, string category)

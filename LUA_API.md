@@ -116,17 +116,22 @@ Changes the category of a torrent.
 - **Returns**: `true` or `nil`.
 
 #### `qb:GetTrackers(hash)`
-Returns a list of trackers for a specific torrent.
-- **Parameters**:
-    - `hash` (string): Torrent hash.
-- **Returns**: `table[]` (list of tracker objects) or `nil`.
-- **Tracker Object Fields**: `url`, `status`, `msg`, etc.
+Gets all trackers for a torrent.
+- **Parameters**: `hash` (string).
+- **Returns**: A table array where each element is a table with `{ url, status, tier, msg, ... }`, or `nil`.
+
+#### `qb:RemoveTrackers(hash, urls)`
+Removes trackers from a torrent.
+- **Parameters**: 
+    - `hash` (string).
+    - `urls` (string): Pipe-separated list of tracker URLs to remove (e.g., "http://url1|http://url2").
+- **Returns**: `true` or `nil`.
 
 #### `qb:HasTracker(hash, pattern)`
-Checks if any tracker URL contains the specified pattern (case-insensitive substring match).
+Checks if a torrent has a tracker matching the pattern (substring match).
 - **Parameters**:
-    - `hash` (string): Torrent hash.
-    - `pattern` (string): Substring pattern to check.
+    - `hash` (string).
+    - `pattern` (string).
 - **Returns**: `bool` (`true`/`false`) or `nil`.
 
 #### `qb:SetLocation(hash, newPath)`

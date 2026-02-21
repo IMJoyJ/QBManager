@@ -116,11 +116,16 @@ end
 - **返回值**: `true` 或 `nil`。
 
 #### `qb:GetTrackers(hash)`
-返回特定种子的 Tracker 列表。
-- **参数**:
-    - `hash` (string): 种子哈希。
-- **返回值**: `table[]` (Tracker 对象列表) 或 `nil`。
-- **Tracker 对象字段**: `url`, `status`, `msg` 等。
+获取种子的所有 Tracker。
+- **参数**: `hash` (string)。
+- **返回值**: 一个表数组，其中每个元素都是一个带有 `{ url, status, tier, msg, ... }` 的表，或返回 `nil`。
+
+#### `qb:RemoveTrackers(hash, urls)`
+移除种子下的某些 Tracker。
+- **参数**: 
+    - `hash` (string)。
+    - `urls` (string): 竖线分隔的要移除的 Tracker URL（例如 "http://url1|http://url2"）。
+- **返回值**: `true` 或 `nil`。
 
 #### `qb:HasTracker(hash, pattern)`
 检查是否有任何 Tracker URL 包含指定模式（大小写不敏感的子字符串匹配）。

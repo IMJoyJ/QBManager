@@ -251,6 +251,7 @@ Prompts the user with a yes/no question via console (stderr). Blocks until user 
 ---
 
 ### SQLite Database
+Used for persistent storage. Can be used to track which files have been backed up or which torrents have been processed.
 
 > **Note**: Requires `database_path` to be set in `config.json`. The database file will be created automatically if it does not exist.
 

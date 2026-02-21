@@ -70,6 +70,26 @@ end
     - `deleteFiles` (bool): `true` 表示同时删除磁盘上的下载数据。
 - **返回值**: `true` 或 `nil`。
 
+#### `qb:PauseTorrents(hashes)`
+暂停（停止）一个或多个种子。
+- **参数**:
+    - `hashes` (string): 竖线分隔的哈希列表（例如 "hash1|hash2"）或 "all"。
+- **返回值**: `true` 或 `nil`。
+
+#### `qb:ResumeTorrents(hashes, forceStart)`
+恢复（开始）一个或多个种子。
+- **参数**:
+    - `hashes` (string): 竖线分隔的哈希列表（例如 "hash1|hash2"）或 "all"。
+    - `forceStart` (bool|nil): `true` 表示强制下载，无视队列限制。默认为 `false`。
+- **返回值**: `true` 或 `nil`。
+
+#### `qb:SetForceStart(hashes, value)`
+设置一个或多个种子的强制开始状态。
+- **参数**:
+    - `hashes` (string): 竖线分隔的哈希列表（例如 "hash1|hash2"）或 "all"。
+    - `value` (bool): `true` 表示开启强制开始，`false` 表示关闭。
+- **返回值**: `true` 或 `nil`。
+
 #### `qb:AddTorrent(category, savePath, skipHashCheck, torrentUrl)`
 通过 URL 添加种子。
 - **参数**:

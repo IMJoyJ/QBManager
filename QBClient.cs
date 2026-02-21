@@ -320,6 +320,90 @@ public class QBClient
     }
 
     /// <summary>
+    /// Pause (stop) torrent(s).
+    /// </summary>
+    public object? PauseTorrents(string hashes)
+    {
+        try
+        {
+            var form = new Dictionary<string, string>
+            {
+                ["hashes"] = hashes
+            };
+            var response = PostFormAsync($"{_server.BaseUrl}/api/v2/torrents/stop", form).Result;
+            response.EnsureSuccessStatusCode();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"PauseTorrents failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Resume (start) torrent(s).
+    /// </summary>
+    public object? ResumeTorrents(string hashes)
+    {
+        return ResumeTorrents(hashes, false);
+    }
+
+    /// <summary>
+    /// Resume (start) torrent(s) with an option to force start.
+    /// </summary>
+    public object? ResumeTorrents(string hashes, bool forceStart)
+    {
+        try
+        {
+            var form = new Dictionary<string, string>
+            {
+                ["hashes"] = hashes
+            };
+            var response = PostFormAsync($"{_server.BaseUrl}/api/v2/torrents/start", form).Result;
+            response.EnsureSuccessStatusCode();
+
+            var forceForm = new Dictionary<string, string>
+            {
+                ["hashes"] = hashes,
+                ["value"] = forceStart ? "true" : "false"
+            };
+            var forceResponse = PostFormAsync($"{_server.BaseUrl}/api/v2/torrents/setForceStart", forceForm).Result;
+            forceResponse.EnsureSuccessStatusCode();
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"ResumeTorrents failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Set the force start state for one or more torrents.
+    /// </summary>
+    public object? SetForceStart(string hashes, bool value)
+    {
+        try
+        {
+            var form = new Dictionary<string, string>
+            {
+                ["hashes"] = hashes,
+                ["value"] = value ? "true" : "false"
+            };
+            var response = PostFormAsync($"{_server.BaseUrl}/api/v2/torrents/setForceStart", form).Result;
+            response.EnsureSuccessStatusCode();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"SetForceStart failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Add a torrent by URL.
     /// </summary>
     public object? AddTorrent(string category, string savePath, bool skipHashCheck, string torrentUrl)

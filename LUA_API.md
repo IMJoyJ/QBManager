@@ -70,6 +70,26 @@ Deletes a torrent.
     - `deleteFiles` (bool): `true` to also delete downloaded data on disk.
 - **Returns**: `true` or `nil`.
 
+#### `qb:PauseTorrents(hashes)`
+Pauses (stops) one or more torrents.
+- **Parameters**:
+    - `hashes` (string): Pipe-separated list of hashes (e.g., "hash1|hash2") or "all".
+- **Returns**: `true` or `nil`.
+
+#### `qb:ResumeTorrents(hashes, forceStart)`
+Resumes (starts) one or more torrents.
+- **Parameters**:
+    - `hashes` (string): Pipe-separated list of hashes (e.g., "hash1|hash2") or "all".
+    - `forceStart` (bool|nil): `true` to force start, bypassing queue limits. Defaults to `false`.
+- **Returns**: `true` or `nil`.
+
+#### `qb:SetForceStart(hashes, value)`
+Sets force start state for one or more torrents.
+- **Parameters**:
+    - `hashes` (string): Pipe-separated list of hashes (e.g., "hash1|hash2") or "all".
+    - `value` (bool): `true` to force start, `false` to disable.
+- **Returns**: `true` or `nil`.
+
 #### `qb:AddTorrent(category, savePath, skipHashCheck, torrentUrl)`
 Adds a torrent from a URL.
 - **Parameters**:

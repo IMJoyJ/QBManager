@@ -20,6 +20,7 @@
     <None Include="config.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="scripts\**" CopyToOutputDirectory="PreserveNewest" />
     <None Include="LUA_API*.md" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="README.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

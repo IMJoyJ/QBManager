@@ -50,3 +50,7 @@ $RECYCLE.BIN/
 ._*
 .Spotlight-V100
 .Trashes
+
+# Scripts (private, site-specific; keep modules and demo)
+scripts/*.lua
+!scripts/script_demo.lua

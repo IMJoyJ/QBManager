@@ -1375,4 +1375,139 @@ public class QBClient
             return null;
         }
     }
+
+    // ─────────────────────────────────────────────
+    //  RSS Feed
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Fetch and parse an RSS 2.0 feed. Returns a Lua table array where each element
+    /// is a table representing one &lt;item&gt; with the following fields:
+    ///   title        string  — item title (CDATA stripped)
+    ///   link         string  — detail page URL
+    ///   hash         string  — torrent info-hash from &lt;guid isPermaLink="false"&gt;
+    ///   enclosure_url    string  — .torrent download URL (decoded from XML entities)
+    ///   enclosure_length number  — torrent size in bytes
+    ///   pub_date     string  — raw RFC-822 publish date string
+    ///   pub_time     number  — publish date as Unix timestamp (or 0 if unparseable)
+    ///   category     string  — category text
+    ///   author       string  — author field
+    /// </summary>
+    public object? GetRSS(string url)
+    {
+        if (_lua == null)
+        {
+            SetLastError("GetRSS: Lua state not bound.");
+            return null;
+        }
+
+        try
+        {
+            var response = _http.GetAsync(url).Result;
+            response.EnsureSuccessStatusCode();
+            var xml = response.Content.ReadAsStringAsync().Result;
+
+            var doc = System.Xml.Linq.XDocument.Parse(xml);
+            var channel = doc.Root?.Element("channel");
+            if (channel == null)
+            {
+                SetLastError("GetRSS: No <channel> element found in RSS response.");
+                return null;
+            }
+
+            var resultTable = (LuaTable)_lua.DoString("return {}")[0];
+            int rowIndex = 0;
+
+            foreach (var item in channel.Elements("item"))
+            {
+                rowIndex++;
+                var rowTable = (LuaTable)_lua.DoString("return {}")[0];
+
+                // title
+                rowTable["title"] = item.Element("title")?.Value ?? "";
+
+                // link
+                rowTable["link"] = item.Element("link")?.Value ?? "";
+
+                // guid → hash (isPermaLink="false" means it's the info-hash)
+                rowTable["hash"] = item.Element("guid")?.Value ?? "";
+
+                // enclosure: <enclosure url="..." length="..." type="..."/>
+                var enclosure = item.Element("enclosure");
+                rowTable["enclosure_url"]    = enclosure?.Attribute("url")?.Value ?? "";
+                var lenStr = enclosure?.Attribute("length")?.Value ?? "0";
+                rowTable["enclosure_length"] = long.TryParse(lenStr, out var lenVal) ? lenVal : 0L;
+
+                // pubDate
+                var pubDateStr = item.Element("pubDate")?.Value ?? "";
+                rowTable["pub_date"] = pubDateStr;
+                long pubTime = 0;
+                if (!string.IsNullOrEmpty(pubDateStr) &&
+                    DateTimeOffset.TryParse(pubDateStr, out var dto))
+                {
+                    pubTime = dto.ToUnixTimeSeconds();
+                }
+                rowTable["pub_time"] = pubTime;
+
+                // category
+                rowTable["category"] = item.Element("category")?.Value ?? "";
+
+                // author
+                rowTable["author"] = item.Element("author")?.Value ?? "";
+
+                // Insert row into result array
+                _lua["__temp_val"] = rowTable;
+                _lua["__temp_tbl"] = resultTable;
+                _lua.DoString($"__temp_tbl[{rowIndex}] = __temp_val");
+                _lua["__temp_val"] = null;
+                _lua["__temp_tbl"] = null;
+            }
+
+            return resultTable;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"GetRSS failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  Generic File Download
+    // ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Download a URL to a local file. Uses the session-cookie-bearing HTTP client,
+    /// so it works for authenticated PT-site URLs (e.g. torrent download links).
+    /// Creates parent directories automatically.
+    /// Returns true on success, nil on failure.
+    /// </summary>
+    public object? DownloadFile(string url, string destinationPath)
+    {
+        try
+        {
+            var response = GetAsync(url).Result;
+            response.EnsureSuccessStatusCode();
+            var bytes = response.Content.ReadAsByteArrayAsync().Result;
+
+            if (bytes.Length == 0)
+            {
+                SetLastError($"DownloadFile: Received empty response from {url}");
+                return null;
+            }
+
+            var dir = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            File.WriteAllBytes(destinationPath, bytes);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            SetLastError($"DownloadFile failed: {ex.GetBaseException().Message}");
+            return null;
+        }
+    }
 }
+

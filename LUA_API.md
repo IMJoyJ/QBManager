@@ -318,6 +318,53 @@ Deletes a local directory **only if empty**. Returns `true` if deleted, `false` 
 
 ---
 
+### RSS & File Download
+
+#### `qb:GetRSS(url)`
+Downloads and parses an RSS 2.0 feed. Returns an array of `<item>` objects as a Lua table.
+- **Parameters**: `url` (string) — Full RSS feed URL (include passkey/auth params as required by PT site).
+- **Returns**: `table[]` or `nil`.
+- **Item fields**:
+
+| Field | Type | Description |
+|---|---|---|
+| `title` | string | Torrent title |
+| `link` | string | Detail page URL |
+| `hash` | string | Torrent info-hash (from `<guid isPermaLink="false">`) |
+| `enclosure_url` | string | .torrent download URL |
+| `enclosure_length` | number | Torrent size in bytes |
+| `pub_date` | string | Raw RFC-822 publish date string |
+| `pub_time` | number | Publish date as Unix timestamp (0 if unparseable) |
+| `category` | string | Category name |
+| `author` | string | Author field |
+
+**Example:**
+```lua
+local items = qb:GetRSS("https://pt.example.cn/rss.php?passkey=xxx")
+if items then
+    for i = 1, #items do
+        print(items[i]["title"] .. " hash=" .. items[i]["hash"])
+    end
+end
+```
+
+#### `qb:DownloadFile(url, destinationPath)`
+Downloads a URL to a local file using the session-cookie-bearing HTTP client (works for authenticated PT-site download links). Parent directories are created automatically.
+- **Parameters**:
+    - `url` (string): Full URL to download.
+    - `destinationPath` (string): Local destination path including filename.
+- **Returns**: `true` or `nil`.
+
+**Typical usage (with `AddTorrentFile`):**
+```lua
+local tmpPath = "C:\\Temp\\download.torrent"
+if qb:DownloadFile(item["enclosure_url"], tmpPath) then
+    qb:AddTorrentFile("TEMP", "C:\\Users\\JoyJ\\Downloads\\TEMP", false, tmpPath)
+end
+```
+
+---
+
 ### Safe Delete (Lua Module)
 
 When torrents share files in the same directory, use `scripts.safe_delete` to avoid deleting files still needed by other torrents.

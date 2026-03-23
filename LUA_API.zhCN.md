@@ -318,6 +318,55 @@ print("Total rows: " .. tostring(count))
 
 ---
 
+### RSS 与种子下载
+
+#### `qb:GetRSS(url)`
+下载并解析一个 RSS 2.0 feed，返回 `<item>` 列表（Lua table 数组）。
+- **参数**: `url` (string) — RSS feed 完整 URL（需携带 PT 站认证参数）。
+- **返回值**: `table[]` 或 `nil`。
+- **每个 item 字段**:
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `title` | string | 种子标题 |
+| `link` | string | 详情页 URL |
+| `hash` | string | 种子 info-hash（来自 `<guid isPermaLink="false">`） |
+| `enclosure_url` | string | .torrent 文件下载 URL |
+| `enclosure_length` | number | 种子大小（字节） |
+| `pub_date` | string | 发布时间字符串（RFC-822） |
+| `pub_time` | number | 发布时间 Unix 时间戳（解析失败为 0） |
+| `category` | string | 分类名称 |
+| `author` | string | 发布者 |
+
+**示例:**
+```lua
+local items = qb:GetRSS("https://pt.example.cn/rss.php?passkey=xxx")
+if items then
+    for i = 1, #items do
+        local item = items[i]
+        print(item["title"] .. " hash=" .. item["hash"])
+    end
+end
+```
+
+#### `qb:DownloadFile(url, destinationPath)`
+下载 URL 内容并保存到本地文件。HTTP 客户端自动携带 session cookie，可用于需要认证的 PT 站下载链接（如 `enclosure_url`）。自动创建父目录。
+- **参数**:
+    - `url` (string): 要下载的完整 URL。
+    - `destinationPath` (string): 本地保存路径（含文件名）。
+- **返回值**: `true` 或 `nil`。
+
+**典型用法（配合 `AddTorrentFile`）:**
+```lua
+local tmpPath = "C:\\Temp\\download.torrent"
+local ok = qb:DownloadFile(item["enclosure_url"], tmpPath)
+if ok then
+    qb:AddTorrentFile("TEMP", "C:\\Users\\JoyJ\\Downloads\\TEMP", false, tmpPath)
+end
+```
+
+---
+
 ### 安全删除 (Lua 模块)
 
 当多个种子共享同一目录中的文件时，使用 `scripts.safe_delete` 以避免删除其他种子仍需使用的文件。

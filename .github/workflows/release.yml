@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+            artifact_ext: zip
+          - os: ubuntu-latest
+            rid: linux-x64
+            artifact_ext: tar.gz
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Publish (${{ matrix.rid }}, self-contained, single file)
+        run: |
+          dotnet publish -c Release -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -o publish/
+        shell: bash
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        run: Compress-Archive -Path publish/* -DestinationPath QBManager-${{ github.ref_name }}-${{ matrix.rid }}.zip
+        shell: pwsh
+
+      - name: Package (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: tar -czf QBManager-${{ github.ref_name }}-${{ matrix.rid }}.tar.gz -C publish .
+        shell: bash
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: QBManager-${{ github.ref_name }}-${{ matrix.rid }}.${{ matrix.artifact_ext }}
+          generate_release_notes: true
